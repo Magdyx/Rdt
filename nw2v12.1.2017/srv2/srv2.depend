@@ -1,0 +1,31 @@
+# depslib dependency file v1.0
+1512140448 source:c:\users\elans\documents\codeblocksprojects\srv2\main.cpp
+	<stdlib.h>
+	<unistd.h>
+	<errno.h>
+	<string.h>
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<arpa/inet.h>
+	<netdb.h>
+	<vector>
+	<fstream>
+	<iostream>
+
+1512588722 source:e:\nw2v12.1.2017\srv2\main.cpp
+	<stdlib.h>
+	<unistd.h>
+	<errno.h>
+	<string.h>
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<arpa/inet.h>
+	<netdb.h>
+	<vector>
+	<fstream>
+	<iostream>
+	<cstdio>
+	<ctime>
+
