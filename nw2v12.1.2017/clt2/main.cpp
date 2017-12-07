@@ -16,6 +16,14 @@
 #define MAXBUFLEN 100
 #define PACKET_DATA_SIZE 500
 
+    int sockfd;
+    struct addrinfo hints, *servinfo, *p;
+    socklen_t addr_len;
+    char buf[MAXBUFLEN];
+    char s[INET6_ADDRSTRLEN];
+    struct sockaddr_storage their_addr;
+    int rv;
+    int numbytes;
 
 using namespace std;
 struct packet
@@ -36,6 +44,10 @@ struct ack_packet
     uint32_t ackno;
 };
 
+struct packet_sr{
+    struct packet pkt;
+    bool received;
+};
 
 vector<string> parse_in_file(string filename)
 {
@@ -118,17 +130,124 @@ void bind_clt_socket()
         fprintf(stderr, "listener: failed to bind socket\n");
     }
 }
+void stop_and_wait(){
+       int cnt = 0;
+    bool cond = true;
+    int numbytes;
+    char s[INET6_ADDRSTRLEN];
+
+    while(true)
+    {
+        addr_len = sizeof their_addr;
+        struct packet pkt;
+        if ((numbytes = recvfrom(sockfd, &pkt, sizeof(pkt), 0,
+                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+        {
+            perror("recvfrom");
+            exit(1);
+        }
+        printf("listener: got packet from %s\n",
+               inet_ntop(their_addr.ss_family,
+                         get_in_addr((struct sockaddr *)&their_addr),
+                         s, sizeof s));
+        printf("listener: packet is %d bytes long\n", numbytes);
+        pkt.data[numbytes] = '\0';
+        printf("listener: packet contains \"%s\"\n", pkt.data);
+
+
+        write_in_file("file.txt", pkt.data, cond);
+        struct ack_packet ack;
+        ack.ackno = cnt++;
+        ack.cksum = 0;
+        ack.len = 0;
+        //sending ack
+        printf("sending ack\n");
+        if ((numbytes = sendto(sockfd, &ack, sizeof(ack), 0,
+                               p->ai_addr, p->ai_addrlen)) == -1)
+        {
+            perror("talker: sendto");
+            exit(1);
+        }
+        printf("ack sent\n");
+        cond = false;
+    }
+    freeaddrinfo(servinfo);
+
+
+}
+
+void selective_repeat (int window_size){
+       int cnt = 0;
+    bool cond = true;
+    int numbytes;
+    char s[INET6_ADDRSTRLEN];
+    packet_sr pkts_sr[1000];
+    int rcv_base = 0;
+    while(true)
+    {
+        addr_len = sizeof their_addr;
+        struct packet pkt;
+        if ((numbytes = recvfrom(sockfd, &pkt, sizeof(pkt), 0,
+                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+        {
+            perror("recvfrom");
+            exit(1);
+        }
+        int rcv_pkt_sr_seqno = (int)pkt.seqno;
+        cout << "rcv_pkt_sr_seqno :" << rcv_pkt_sr_seqno << endl;
+        if(rcv_pkt_sr_seqno > rcv_base+window_size-1 || rcv_pkt_sr_seqno < rcv_base-window_size){
+            cout << "errrrrrrrr"<<endl;
+            continue;
+        }
+        pkts_sr[rcv_pkt_sr_seqno].pkt  = pkt;
+        pkts_sr[rcv_pkt_sr_seqno].received = true;
+
+
+        printf("listener: got packet from %s\n",
+               inet_ntop(their_addr.ss_family,
+                         get_in_addr((struct sockaddr *)&their_addr),
+                         s, sizeof s));
+        printf("listener: packet is %d bytes long\n", numbytes);
+        pkt.data[numbytes] = '\0';
+        printf("listener: packet contains \"%s\"\n", pkt.data);
+
+
+        struct ack_packet ack;
+        ack.ackno = pkt.seqno;
+        ack.cksum = 0;
+        ack.len = 0;
+
+        //sending ack
+        printf("sending ack\n");
+        if ((numbytes = sendto(sockfd, &ack, sizeof(ack), 0,
+                               p->ai_addr, p->ai_addrlen)) == -1)
+        {
+            perror("talker: sendto");
+            exit(1);
+        }
+        printf("ack sent\n");
+
+        //writing inorder packet in file
+        if(rcv_pkt_sr_seqno == rcv_base){
+            while(pkts_sr[rcv_base].received){
+
+                write_in_file("file.txt", pkts_sr[rcv_base].pkt.data, cond);
+                cond = false;
+
+                rcv_base++;
+            }
+
+
+
+
+        }
+        freeaddrinfo(servinfo);
+
+    }
+}
 
 int main(int argc, char *argv[])
 {
-    int sockfd;
-    struct addrinfo hints, *servinfo, *p;
-    socklen_t addr_len;
-    char buf[MAXBUFLEN];
-    char s[INET6_ADDRSTRLEN];
-    struct sockaddr_storage their_addr;
-    int rv;
-    int numbytes;
 
     vector<string> ctnts = parse_in_file("client.in"); //srvip - srvport - cltport - file - window
 	string srv_ip = ctnts[0];
@@ -167,45 +286,8 @@ int main(int argc, char *argv[])
         perror("talker: sendto");
         exit(1);
     }
-    int cnt = 0;
-    bool cond = true;
-    while(true)
-    {
-        addr_len = sizeof their_addr;
-        struct packet pkt;
-        if ((numbytes = recvfrom(sockfd, &pkt, sizeof(pkt), 0,
-                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
-        {
-            perror("recvfrom");
-            exit(1);
-        }
-        printf("listener: got packet from %s\n",
-               inet_ntop(their_addr.ss_family,
-                         get_in_addr((struct sockaddr *)&their_addr),
-                         s, sizeof s));
-        printf("listener: packet is %d bytes long\n", numbytes);
-        pkt.data[numbytes] = '\0';
-        printf("listener: packet contains \"%s\"\n", pkt.data);
-
-
-        write_in_file(sendfile, pkt.data, cond);
-        struct ack_packet ack;
-        ack.ackno = cnt++;
-        ack.cksum = 0;
-        ack.len = 0;
-        //sending ack
-        printf("sending ack\n");
-        if ((numbytes = sendto(sockfd, &ack, sizeof(ack), 0,
-                               p->ai_addr, p->ai_addrlen)) == -1)
-        {
-            perror("talker: sendto");
-            exit(1);
-        }
-        printf("ack sent\n");
-        cond = false;
-    }
-    freeaddrinfo(servinfo);
-    printf("talker: sent %d bytes to %s\n", numbytes, argv[1]);
+   stop_and_wait();
+   // selective_repeat(sockfd, addr_len, their_addr, sendfile, servinfo, p, window_size);
     close(sockfd);
     return 0;
 }

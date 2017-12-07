@@ -15,45 +15,54 @@
 #include <iostream>
 #include <cstdio>
 #include <ctime>
-
-
+#include <chrono>
+#include <unistd.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <time.h>
 
 #define MYPORT "4950" // the port users will be connecting to
 #define MAXBUFLEN 100
 #define SRV_IN_FILE "server.in"
 #define PACKET_DATA_SIZE 500
 #define WINDOW_SIZE 5
-
+#define TIME_OUT 3.0
 
 using namespace std;
-    int sockfd;
-    struct addrinfo hints, *servinfo, *p;
-    int rv;
-    int numbytes;
-    socklen_t addr_len;
-    struct sockaddr_storage their_addr;
-    char buf[MAXBUFLEN];
-    char s[INET6_ADDRSTRLEN];
-struct packet {
- /* Header */
-     uint16_t cksum; /* Optional bonus part */
-     uint16_t len;
-     uint32_t seqno;
-     /* Data */
-     char data[PACKET_DATA_SIZE ]; /* Not always 500 bytes, can be less */
+int sockfd;
+struct addrinfo hints, *servinfo, *p;
+int rv;
+int numbytes;
+socklen_t addr_len;
+struct sockaddr_storage their_addr;
+char buf[MAXBUFLEN];
+char s[INET6_ADDRSTRLEN];
+struct packet
+{
+    /* Header */
+    uint16_t cksum; /* Optional bonus part */
+    uint16_t len;
+    uint32_t seqno;
+    /* Data */
+    char data[PACKET_DATA_SIZE ]; /* Not always 500 bytes, can be less */
 };
-struct packet_sr{
+struct packet_sr
+{
     struct packet pkt;
-    int start_time;
+    bool acked;
+    clock_t start_time;
 };
 /* Ack-only packets are only 8 bytes */
-struct ack_packet {
+struct ack_packet
+{
     uint16_t cksum; /* Optional bonus part */
     uint16_t len;
     uint32_t ackno;
 };
 
-int  break_file(struct packet* data_pkts, char* buf, int len) {
+int  break_file(struct packet* data_pkts, char* buf, int len)
+{
     int pkts_cnt, bytes_left = len;
     char* buf_iterator;
 
@@ -63,9 +72,11 @@ int  break_file(struct packet* data_pkts, char* buf, int len) {
     if (pkts_cnt * (PACKET_DATA_SIZE-1) < len) ++pkts_cnt; //ceil integer division
 
     cout << "buffer in break_file :" << buf << endl;
-    for(int i=0;i<pkts_cnt;i++){
+    for(int i=0; i<pkts_cnt; i++)
+    {
         int packet_size = PACKET_DATA_SIZE-1;
-        if (bytes_left < PACKET_DATA_SIZE-1) {
+        if (bytes_left < PACKET_DATA_SIZE-1)
+        {
             packet_size = bytes_left;
         }
         memset(data_pkts[i].data, '\0', sizeof(data_pkts[i].data));
@@ -85,18 +96,20 @@ int  break_file(struct packet* data_pkts, char* buf, int len) {
 }
 
 
-vector<string> parse_in_file(string filename){
+vector<string> parse_in_file(string filename)
+{
     ifstream in_file(filename);
-	vector<string> file_contents;
-	string resline;
-	while(getline(in_file, resline))
+    vector<string> file_contents;
+    string resline;
+    while(getline(in_file, resline))
     {
         file_contents.push_back(resline);
     }
-	return file_contents;
+    return file_contents;
 }
 
-void write_in_file(string filename, char * char_arr, bool first_open){
+void write_in_file(string filename, char * char_arr, bool first_open)
+{
     ofstream stream;
     if(!first_open)
         stream.open(filename, ofstream::out | ofstream::app);
@@ -110,10 +123,12 @@ void write_in_file(string filename, char * char_arr, bool first_open){
     if( !stream )
         cout << "Write failed" << endl;
 }
-int read_from_file(char * buf, string filename){
+int read_from_file(char * buf, string filename)
+{
     std::ifstream is (filename.c_str(), std::ifstream::binary);
     int length = 0;
-      if (is) {
+    if (is)
+    {
         // get length of file:
         memset(buf, '\0', sizeof(buf));
         is.seekg (0, is.end);
@@ -127,21 +142,22 @@ int read_from_file(char * buf, string filename){
         is.read (buffer,length);
 
         if(!is)
-          cout << "error: only " << is.gcount() << " could be read"<<endl;
+            cout << "error: only " << is.gcount() << " could be read"<<endl;
         strncpy(buf, buffer, length * sizeof(char));
         is.close();
 
         // ...buffer contains the entire file...
 
         delete[] buffer;
-      }
-      else{
+    }
+    else
+    {
         cout << "error";
-      }
-      cout << "read_from_file buffer :";
-      buf[length-2] = '\0';
-      cout << buf<<endl;
-      return length;
+    }
+    cout << "read_from_file buffer :";
+    buf[length-2] = '\0';
+    cout << buf<<endl;
+    return length;
 }
 
 // get sockaddr, IPv4 or IPv6:
@@ -154,13 +170,102 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-void selective_repeat(){
+void selective_repeat(int window_size)
+{
+    char  txt_in_file [10000];
+    int length = read_from_file(txt_in_file, "file.txt");
+
+    cout << "read from file"<<endl;
+    cout << "read_from_file :" << txt_in_file << endl;
+    int base = 0;
+
+    struct packet pkts [1000];
+    struct packet_sr pkts_sr [1000];
+    int pkts_length = break_file(pkts, txt_in_file, length);
+    for(int i = 0; i < pkts_length; i++){
+        pkts_sr[i].pkt = pkts[i];
+        pkts_sr[i].acked = false;
+        pkts_sr[i].start_time = 0;
+    }
+
+    for(int i = 0; i < pkts_length; i++)
+    {
+
+        //set packets_sr;
+        if(i < base+window_size){
+            if ((numbytes = sendto(sockfd, &pkts_sr[i].pkt, sizeof(pkts_sr[i].pkt), 0,
+                               (struct sockaddr *)&their_addr, addr_len)) == -1)
+            {
+                perror("talker: sendto");
+                exit(1);
+            }
+        }
+        pkts_sr[i].start_time = clock();
+
+        //receiving ack
+        addr_len = sizeof their_addr;
+        struct ack_packet ack;
+        printf("ack receiving\n");
+        if ((numbytes = recvfrom(sockfd, &ack,sizeof(ack), 0,
+                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+        {
+            perror("recvfrom");
+            exit(1);
+
+        }
+        pkts_sr[ack.ackno].acked = true;
+        //receiving ack with the same as base:
+        printf("ack received\n");
+        printf("ack no : %d\n",ack.ackno);
+
+
+        if((int)ack.ackno == base){
+            while(pkts_sr[base].acked)
+            {
+                base++;
+            }
+        }
+        else
+        {
+            for(int j = base; j < ack.ackno; j++)
+            {
+                double duration = (double)(  clock() - pkts_sr[j].start_time)/ CLOCKS_PER_SEC;
+                if(!pkts_sr[j].acked && duration > TIME_OUT)
+                {
+
+                    if ((numbytes = sendto(sockfd, &pkts_sr[j].pkt, sizeof(pkts_sr[j].pkt), 0,
+                                           (struct sockaddr *)&their_addr, addr_len)) == -1)
+                    {
+                        perror("talker: sendto");
+                        exit(1);
+                    }
+                    pkts_sr[j].start_time = clock();
+                }
+            }
+        }
+
+        //    if(ack.ackno != i)
+        //      i--;
+    }
+
+    cout << "buf sent back from server" << endl;
 
 }
-void stop_wait (){
+
+
+bool take_it(int file_prob){
+    int prob = rand() % 100;
+    file_prob = 100 - file_prob;
+    if(prob < file_prob)
+        return true;
+    return false;
+}
+
+void stop_wait (int file_prob)
+{
     int numbytes = 0;
-    char  txt_in_file [100000000];
-    int length = read_from_file(txt_in_file, );
+    char  txt_in_file [10000];
+    int length = read_from_file(txt_in_file, "file.txt");
 
     cout << "read from file"<<endl;
 
@@ -171,9 +276,11 @@ void stop_wait (){
     cout <<"pkts_length:" <<pkts_length;
     cout << "pkt 0 data:" <<pkts[0].data << endl;
     cout << "pkt0data:" <<pkts[0].data << endl;
-    for(int i = 0; i < pkts_length; i++){
-        if ((numbytes = sendto(sockfd, &pkts[i], sizeof(pkts[i]), 0,
-                           (struct sockaddr *)&their_addr, addr_len)) == -1)
+    for(int i = 0; i < pkts_length; i++)
+    {
+
+        if ( take_it(file_prob) && (numbytes = sendto(sockfd, &pkts[i], sizeof(pkts[i]), 0,
+                               (struct sockaddr *)&their_addr, addr_len)) == -1)
         {
             perror("talker: sendto");
             exit(1);
@@ -183,8 +290,27 @@ void stop_wait (){
         addr_len = sizeof their_addr;
         struct ack_packet ack;
         printf("ack receiving\n");
-        if ((numbytes = recvfrom(sockfd, &ack,sizeof(ack), 0,
-                             (struct sockaddr *)&their_addr, &addr_len)) == -1)
+        fd_set fds;
+        int n;
+        struct timeval tv;
+        FD_ZERO(&fds);
+        FD_SET(sockfd, &fds);
+
+        tv.tv_sec = 2;
+        tv.tv_usec = 0;
+
+        n = select(sockfd+1, &fds, NULL, NULL, &tv);
+        if(n == 0){
+            //timeout
+            i--;
+            continue;
+        }
+        else if(n == -1){
+             //error
+             perror("recev error");
+        }
+        else if ((numbytes = recvfrom(sockfd, &ack,sizeof(ack), 0,
+                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
         {
             perror("recvfrom");
             exit(1);
@@ -208,8 +334,9 @@ int main(void)
     string srv_port = fctnts[0];
     int window_size = stoi(fctnts[1]);
     int seed = stoi(fctnts[2]);
-    float success_prob = stof(fctnts[3]);
+    float success_prob = stof(fctnts[3]) * 100;
 
+    srand(seed);
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC; // set to AF_INET to force IPv4
@@ -261,8 +388,8 @@ int main(void)
     printf("listener: packet contains \"%s\"\n", buf);
     cout << "sending back" << endl;
 
-    stop_wait();
-
+    stop_wait((int)success_prob);
+    //selective_repeat(window_size);
     close(sockfd);
     return 0;
 }
