@@ -53,6 +53,7 @@ struct packet_sr
     bool acked;
     clock_t start_time;
 };
+
 /* Ack-only packets are only 8 bytes */
 struct ack_packet
 {
@@ -182,7 +183,8 @@ void selective_repeat(int window_size)
     struct packet pkts [1000];
     struct packet_sr pkts_sr [1000];
     int pkts_length = break_file(pkts, txt_in_file, length);
-    for(int i = 0; i < pkts_length; i++){
+    for(int i = 0; i < pkts_length; i++)
+    {
         pkts_sr[i].pkt = pkts[i];
         pkts_sr[i].acked = false;
         pkts_sr[i].start_time = 0;
@@ -192,9 +194,10 @@ void selective_repeat(int window_size)
     {
 
         //set packets_sr;
-        if(i < base+window_size){
+        if(i < base+window_size)
+        {
             if ((numbytes = sendto(sockfd, &pkts_sr[i].pkt, sizeof(pkts_sr[i].pkt), 0,
-                               (struct sockaddr *)&their_addr, addr_len)) == -1)
+                                   (struct sockaddr *)&their_addr, addr_len)) == -1)
             {
                 perror("talker: sendto");
                 exit(1);
@@ -219,7 +222,8 @@ void selective_repeat(int window_size)
         printf("ack no : %d\n",ack.ackno);
 
 
-        if((int)ack.ackno == base){
+        if((int)ack.ackno == base)
+        {
             while(pkts_sr[base].acked)
             {
                 base++;
@@ -252,8 +256,150 @@ void selective_repeat(int window_size)
 
 }
 
+void selective_repeat_with_congition_control(int window_size)
+{
+    char  txt_in_file [10000];
+    int dup_acks = 0;
+    int length = read_from_file(txt_in_file, "file.txt");
+    int cwnd = 1,ssthd = -1;
+    cout << "read from file"<<endl;
+    cout << "read_from_file :" << txt_in_file << endl;
+    int base = 0;
 
-bool take_it(int file_prob){
+    struct packet pkts [1000];
+    struct packet_sr pkts_sr [1000];
+    int pkts_length = break_file(pkts, txt_in_file, length);
+    for(int i = 0; i < pkts_length; i++)
+    {
+        pkts_sr[i].pkt = pkts[i];
+        pkts_sr[i].acked = false;
+        pkts_sr[i].start_time = 0;
+    }
+    int i = 0;//i represent seqno
+    while(i < pkts_length)
+    {
+        int end_of_loop = 0;
+        if(ssthd == -1){
+            end_of_loop = min(window_size, cwnd);
+        }
+        else{
+            end_of_loop = min(min(window_size, cwnd), ssthd);
+        }
+
+
+        //set packets_sr;
+        for(int j = 0; j < end_of_loop; j++)
+        {
+            if ((numbytes = sendto(sockfd, &pkts_sr[i+j].pkt, sizeof(pkts_sr[i+j].pkt), 0,
+                                   (struct sockaddr *)&their_addr, addr_len)) == -1)
+            {
+                perror("talker: sendto");
+                exit(1);
+            }
+
+            pkts_sr[i+j].start_time = clock();
+        }
+
+
+        //receiving ack
+
+        for(int j = 0; j < end_of_loop; j++)
+        {
+            addr_len = sizeof their_addr;
+            struct ack_packet ack;
+            printf("ack receiving\n");
+
+            //timout handling using select
+            fd_set fds;
+            int n;
+            struct timeval tv;
+            FD_ZERO(&fds);
+            FD_SET(sockfd, &fds);
+
+            tv.tv_sec = 2;
+            tv.tv_usec = 0;
+
+            n = select(sockfd+1, &fds, NULL, NULL, &tv);
+            if(n == 0)
+            {
+                //timeout
+
+                //1- update ssthd
+                if(ssthd == -1)
+                    ssthd = cwnd/2;
+                else
+                    ssthd = min(ssthd, cwnd/2);
+                //2 - change the seqno with first unsend packet in buffer
+                i = i + j;
+
+                //3- update cwnd
+                cwnd = 1;
+                break;
+
+            }
+            else if(n == -1)
+            {
+                //error
+                perror("recev error");
+            }
+            else{
+                if ((numbytes = recvfrom(sockfd, &ack,sizeof(ack), 0,
+                                         (struct sockaddr *)&their_addr, &addr_len)) == -1)
+                {
+                    perror("recvfrom");
+                    exit(1);
+
+                }
+                pkts_sr[ack.ackno].acked = true;
+
+                printf("ack received\n");
+                printf("ack no : %d\n",ack.ackno);
+
+                //receiving ack with the same as base:
+                if((int)ack.ackno == base)
+                {
+                    while(pkts_sr[base].acked)
+                    {
+                        base++;
+                    }
+                }
+                else
+                {
+
+                    for(int k = base; k < ack.ackno; k++)
+                    {
+                        double duration = (double)(  clock() - pkts_sr[k].start_time)/ CLOCKS_PER_SEC;
+                        if(!pkts_sr[k].acked && duration > TIME_OUT)
+                        {
+
+                            if ((numbytes = sendto(sockfd, &pkts_sr[k].pkt, sizeof(pkts_sr[k].pkt), 0,
+                                                   (struct sockaddr *)&their_addr, addr_len)) == -1)
+                            {
+                                perror("talker: sendto");
+                                exit(1);
+                            }
+                            pkts_sr[k].start_time = clock();
+                        }
+                    }
+                }
+
+            }
+            i += cwnd;
+            cwnd = cwnd*2;
+
+        }
+
+        //kolo tmama
+
+    }
+
+    cout << "buf sent back from server" << endl;
+
+}
+
+
+bool take_it(int file_prob)
+{
     int prob = rand() % 100;
     file_prob = 100 - file_prob;
     if(prob < file_prob)
@@ -280,7 +426,7 @@ void stop_wait (int file_prob)
     {
 
         if ( take_it(file_prob) && (numbytes = sendto(sockfd, &pkts[i], sizeof(pkts[i]), 0,
-                               (struct sockaddr *)&their_addr, addr_len)) == -1)
+                                               (struct sockaddr *)&their_addr, addr_len)) == -1)
         {
             perror("talker: sendto");
             exit(1);
@@ -290,6 +436,8 @@ void stop_wait (int file_prob)
         addr_len = sizeof their_addr;
         struct ack_packet ack;
         printf("ack receiving\n");
+
+        //timout handling using select
         fd_set fds;
         int n;
         struct timeval tv;
@@ -300,17 +448,19 @@ void stop_wait (int file_prob)
         tv.tv_usec = 0;
 
         n = select(sockfd+1, &fds, NULL, NULL, &tv);
-        if(n == 0){
+        if(n == 0)
+        {
             //timeout
             i--;
             continue;
         }
-        else if(n == -1){
-             //error
-             perror("recev error");
+        else if(n == -1)
+        {
+            //error
+            perror("recev error");
         }
         else if ((numbytes = recvfrom(sockfd, &ack,sizeof(ack), 0,
-                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+                                      (struct sockaddr *)&their_addr, &addr_len)) == -1)
         {
             perror("recvfrom");
             exit(1);
@@ -325,6 +475,82 @@ void stop_wait (int file_prob)
     cout << "buf sent back from server" << endl;
 
 }
+
+void go_back_N(int window_size)
+{
+    char  txt_in_file [10000];
+    int length = read_from_file(txt_in_file, "file.txt");
+
+    cout << "read from file"<<endl;
+    cout << "read_from_file :" << txt_in_file << endl;
+    int base = 0;
+    clock_t start;
+    struct packet pkts [1000];
+    int pkts_length = break_file(pkts, txt_in_file, length);
+
+    for(int i = 0; i < pkts_length; i++)
+    {
+
+        //set packets_sr;
+        if(i < base+window_size)
+        {
+            if ((numbytes = sendto(sockfd, &pkts[i].pkt, sizeof(pkts[i].pkt), 0,
+                                   (struct sockaddr *)&their_addr, addr_len)) == -1)
+            {
+                perror("talker: sendto");
+                exit(1);
+            }
+
+            if( i == base)
+                   start  = clock();
+
+        }
+
+
+
+        //receiving ack
+        addr_len = sizeof their_addr;
+        struct ack_packet ack;
+
+        //receiving ack with the same as base:
+         double duration = (double)(  clock() - pkts[j].start_time)/ CLOCKS_PER_SEC;
+        if(duration > TIME_OUT)
+        {//timout
+            for(int k = base; k < i; k++){
+                if ((numbytes = sendto(sockfd, &pkts[i].pkt, sizeof(pkts[i].pkt), 0,
+                                   (struct sockaddr *)&their_addr, addr_len)) == -1)
+                {
+                    perror("talker: sendto");
+                    exit(1);
+                }
+                if( i == base)
+                   start  = clock();
+            }
+        }
+
+
+
+        if ((numbytes = recvfrom(sockfd, &ack,sizeof(ack), 0,
+                                      (struct sockaddr *)&their_addr, &addr_len)) == -1)
+        {
+            perror("recvfrom");
+            exit(1);
+
+        }
+        base = ack.ackno+1;
+        if(base <= i){
+            start = clock();
+        }
+        printf("ack received\n");
+        printf("ack no : %d\n",ack.ackno);
+
+    }
+
+    cout << "buf sent back from server" << endl;
+
+}
+
+
 int main(void)
 {
 

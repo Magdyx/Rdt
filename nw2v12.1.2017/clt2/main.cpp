@@ -131,7 +131,6 @@ void bind_clt_socket()
     }
 }
 void stop_and_wait(){
-       int cnt = 0;
     bool cond = true;
     int numbytes;
     char s[INET6_ADDRSTRLEN];
@@ -246,6 +245,59 @@ void selective_repeat (int window_size){
     }
 }
 
+void go_back_N(int window_size){
+    bool cond = true;
+    int numbytes;
+    char s[INET6_ADDRSTRLEN];
+    int expected_seqno = 0;
+    while(true)
+    {
+        addr_len = sizeof their_addr;
+        struct packet pkt;
+        if ((numbytes = recvfrom(sockfd, &pkt, sizeof(pkt), 0,
+                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+        {
+            perror("recvfrom");
+            exit(1);
+        }
+        printf("listener: got packet from %s\n",
+               inet_ntop(their_addr.ss_family,
+                         get_in_addr((struct sockaddr *)&their_addr),
+                         s, sizeof s));
+        printf("listener: packet is %d bytes long\n", numbytes);
+        pkt.data[numbytes] = '\0';
+        printf("listener: packet contains \"%s\"\n", pkt.data);
+        struct ack_packet ack;
+        ack.cksum = 0;
+        ack.len = 0;
+        /*if pkt SEQNO is equal to expected_seqno -> return ack
+                                                  -> write pkt in file
+
+          if pkt.seqno not equal to seqno -> return ack equal to last received one
+        */
+        if(expected_seqno == (int)pkt.seqno){
+            write_in_file("file.txt", pkt.data, cond);
+            ack.ackno = pkt.seqno;
+            cond = false;
+                //sending ack
+        }
+       else{
+            ack.acknot = expected_seqno-1;
+
+       }
+       printf("sending ack\n");
+       if ((numbytes = sendto(sockfd, &ack, sizeof(ack), 0,
+                                       p->ai_addr, p->ai_addrlen)) == -1)
+        {
+            perror("talker: sendto");
+            exit(1);
+        }
+        printf("ack sent\n");
+
+    }
+    freeaddrinfo(servinfo);
+
+}
 int main(int argc, char *argv[])
 {
 
