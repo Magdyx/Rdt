@@ -23,7 +23,7 @@
 #include <time.h>
 
 #define MYPORT "4950" // the port users will be connecting to
-#define MAXBUFLEN 100
+#define MAXBUFLEN 1000000
 #define SRV_IN_FILE "server.in"
 #define PACKET_DATA_SIZE 500
 #define WINDOW_SIZE 5
@@ -36,8 +36,9 @@ int rv;
 int numbytes;
 socklen_t addr_len;
 struct sockaddr_storage their_addr;
-char buf[MAXBUFLEN];
+char sendfile[50];
 char s[INET6_ADDRSTRLEN];
+
 struct packet
 {
     /* Header */
@@ -62,34 +63,43 @@ struct ack_packet
     uint32_t ackno;
 };
 
+int  read_image_file(char * buf, string filename) {
+    cout << "in read image";
+    ifstream file(filename.c_str(), ios::in | ios::binary | ios::ate);
+    int length = file.tellg();
+    file.seekg(0, ifstream::beg);
+
+    memset(buf, '\0', length);
+    file.read(buf, length);
+    file.close();
+    return length;
+
+}
 int  break_file(struct packet* data_pkts, char* buf, int len)
 {
     int pkts_cnt, bytes_left = len;
-    char* buf_iterator;
 
-
-    buf_iterator = buf;
     pkts_cnt = len / (PACKET_DATA_SIZE-1);
-    if (pkts_cnt * (PACKET_DATA_SIZE-1) < len) ++pkts_cnt; //ceil integer division
+    if (pkts_cnt * (PACKET_DATA_SIZE-1)< len) ++pkts_cnt; //ceil integer division
 
     cout << "buffer in break_file :" << buf << endl;
     for(int i=0; i<pkts_cnt; i++)
     {
-        int packet_size = PACKET_DATA_SIZE-1;
-        if (bytes_left < PACKET_DATA_SIZE-1)
-        {
-            packet_size = bytes_left;
-        }
-        memset(data_pkts[i].data, '\0', sizeof(data_pkts[i].data));
-        cout << "break_file buf_iterator: " << buf_iterator << endl;
-        strncpy(data_pkts[i].data, buf_iterator, packet_size);
-
+        int    packet_size = PACKET_DATA_SIZE-1;
+            if (bytes_left < PACKET_DATA_SIZE-1)
+            {
+                packet_size = bytes_left+1;
+            }
+            memset(data_pkts[i].data, '\0', sizeof(data_pkts[i].data));
+            cout << "break_file buf_iterator: " << buf << endl;
+            cout << "immmmmmmmmm packet_size" << packet_size<<endl;
+            strncpy(data_pkts[i].data, buf, packet_size);
         //cout << data_pkts[i].data << endl;
         data_pkts[i].cksum = 0;
         data_pkts[i].seqno = i;
         data_pkts[i].len = packet_size;
 
-        buf_iterator += packet_size;
+        buf += packet_size;
         bytes_left -=  packet_size;
     }
     //cout << "pkts size" << pkts_cnt <<endl;
@@ -124,7 +134,7 @@ void write_in_file(string filename, char * char_arr, bool first_open)
     if( !stream )
         cout << "Write failed" << endl;
 }
-int read_from_file(char * buf, string filename)
+int read_txt_file(char * buf, string filename)
 {
     std::ifstream is (filename.c_str(), std::ifstream::binary);
     int length = 0;
@@ -160,7 +170,16 @@ int read_from_file(char * buf, string filename)
     cout << buf<<endl;
     return length;
 }
+int read_from_file(char*buf, string filename){
+    cout << "in read file";
+	if(filename.substr(filename.find_last_of(".") + 1) == "txt"){
+		return read_txt_file(buf, filename);
+	}
+	else{
+		return read_image_file(buf, filename);
 
+	}
+}
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
 {
@@ -173,15 +192,15 @@ void *get_in_addr(struct sockaddr *sa)
 
 void selective_repeat(int window_size)
 {
-    char  txt_in_file [10000];
-    int length = read_from_file(txt_in_file, "file.txt");
+    char  txt_in_file [MAXBUFLEN];
+    int length = read_from_file(txt_in_file, sendfile);
 
     cout << "read from file"<<endl;
     cout << "read_from_file :" << txt_in_file << endl;
     int base = 0;
 
-    struct packet pkts [1000];
-    struct packet_sr pkts_sr [1000];
+    struct packet pkts [MAXBUFLEN];
+    struct packet_sr pkts_sr [MAXBUFLEN];
     int pkts_length = break_file(pkts, txt_in_file, length);
     for(int i = 0; i < pkts_length; i++)
     {
@@ -258,16 +277,16 @@ void selective_repeat(int window_size)
 
 void selective_repeat_with_congition_control(int window_size)
 {
-    char  txt_in_file [10000];
+    char  txt_in_file [MAXBUFLEN];
     int dup_acks = 0;
-    int length = read_from_file(txt_in_file, "file.txt");
+    int length = read_from_file(txt_in_file, sendfile );
     int cwnd = 1,ssthd = -1;
     cout << "read from file"<<endl;
     cout << "read_from_file :" << txt_in_file << endl;
     int base = 0;
 
-    struct packet pkts [1000];
-    struct packet_sr pkts_sr [1000];
+    struct packet pkts [MAXBUFLEN];
+    struct packet_sr pkts_sr [MAXBUFLEN];
     int pkts_length = break_file(pkts, txt_in_file, length);
     for(int i = 0; i < pkts_length; i++)
     {
@@ -409,20 +428,41 @@ bool take_it(int file_prob)
 
 void stop_wait (int file_prob)
 {
+    cout << "in stop_wait";
     int numbytes = 0;
-    char  txt_in_file [10000];
-    int length = read_from_file(txt_in_file, "file.txt");
-
+    char  txt_in_file [MAXBUFLEN];
+    int length = read_from_file(txt_in_file, sendfile);
+    cout << "length read from file : "<< length << endl;
     cout << "read from file"<<endl;
 
 
     cout << "read_from_file :" << txt_in_file << endl;
-    struct packet pkts [100];
-    int pkts_length = break_file(pkts, txt_in_file, length);
-    cout <<"pkts_length:" <<pkts_length;
-    cout << "pkt 0 data:" <<pkts[0].data << endl;
-    cout << "pkt0data:" <<pkts[0].data << endl;
-    for(int i = 0; i < pkts_length; i++)
+    struct packet pkts [1000];
+    int j = 0;
+    int pkts_length = 0;
+    if(string(sendfile).substr(string(sendfile).find_last_of(".") + 1) != "txt"){
+
+        int cou = 0;
+        while(cou < 1000000) cou++;
+       while(length > 0){
+            pkts[j].len = min(500, length);
+            pkts[j].seqno = j;
+            cout <<pkts[j].len << endl;
+            for(int i = 0; i < pkts[j].len; i++){
+                pkts[j].data[i] = txt_in_file[j*500 + i];
+            }
+
+            j++;
+          //cout << "J :" << j << endl;
+            length =length - 500;
+        }
+        pkts_length = j;
+    }
+    else{
+         pkts_length = break_file(pkts, txt_in_file, length);
+
+    }
+   for(int i = 0; i < pkts_length; i++)
     {
 
         if ( take_it(file_prob) && (numbytes = sendto(sockfd, &pkts[i], sizeof(pkts[i]), 0,
@@ -478,23 +518,45 @@ void stop_wait (int file_prob)
 
 void go_back_N(int window_size)
 {
-    char  txt_in_file [10000];
-    int length = read_from_file(txt_in_file, "file.txt");
+    char  txt_in_file [MAXBUFLEN];
+    int length = read_from_file(txt_in_file, sendfile);
 
     cout << "read from file"<<endl;
     cout << "read_from_file :" << txt_in_file << endl;
     int base = 0;
     clock_t start;
-    struct packet pkts [1000];
-    int pkts_length = break_file(pkts, txt_in_file, length);
+    struct packet pkts [MAXBUFLEN];
+    int j = 0;
+    int pkts_length = 0;
+    if(string(sendfile).substr(string(sendfile).find_last_of(".") + 1) != "txt"){
 
-    for(int i = 0; i < pkts_length; i++)
-    {
+        int cou = 0;
+        while(cou < 1000000) cou++;
+       while(length > 0){
+            pkts[j].len = min(500, length);
+            pkts[j].seqno = j;
+            cout <<pkts[j].len << endl;
+            for(int i = 0; i < pkts[j].len; i++){
+                pkts[j].data[i] = txt_in_file[j*500 + i];
+            }
+
+            j++;
+          //cout << "J :" << j << endl;
+            length =length - 500;
+        }
+        pkts_length = j;
+    }
+    else{
+         pkts_length = break_file(pkts, txt_in_file, length);
+
+    }
+   for(int i = 0; i < pkts_length; i++)
+     {
 
         //set packets_sr;
         if(i < base+window_size)
         {
-            if ((numbytes = sendto(sockfd, &pkts[i].pkt, sizeof(pkts[i].pkt), 0,
+            if ((numbytes = sendto(sockfd, &pkts[i], sizeof(pkts[i]), 0,
                                    (struct sockaddr *)&their_addr, addr_len)) == -1)
             {
                 perror("talker: sendto");
@@ -513,11 +575,11 @@ void go_back_N(int window_size)
         struct ack_packet ack;
 
         //receiving ack with the same as base:
-         double duration = (double)(  clock() - pkts[j].start_time)/ CLOCKS_PER_SEC;
+         double duration = (double)(  clock() - start)/ CLOCKS_PER_SEC;
         if(duration > TIME_OUT)
         {//timout
             for(int k = base; k < i; k++){
-                if ((numbytes = sendto(sockfd, &pkts[i].pkt, sizeof(pkts[i].pkt), 0,
+                if ((numbytes = sendto(sockfd, &pkts[i], sizeof(pkts[i]), 0,
                                    (struct sockaddr *)&their_addr, addr_len)) == -1)
                 {
                     perror("talker: sendto");
@@ -598,20 +660,21 @@ int main(void)
     freeaddrinfo(servinfo);
     printf("listener: waiting to recvfrom...\n");
     addr_len = sizeof their_addr;
-    if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1, 0,
+    if ((numbytes = recvfrom(sockfd, sendfile, MAXBUFLEN-1, 0,
                              (struct sockaddr *)&their_addr, &addr_len)) == -1)
     {
         perror("recvfrom");
         exit(1);
 
     }
+
     printf("listener: got packet from %s\n",
            inet_ntop(their_addr.ss_family,
                      get_in_addr((struct sockaddr *)&their_addr),
                      s, sizeof s));
     printf("listener: packet is %d bytes long\n", numbytes);
-    buf[numbytes] = '\0';
-    printf("listener: packet contains \"%s\"\n", buf);
+    sendfile[numbytes] = '\0';
+    printf("listener: packet contains \"%s\"\n", sendfile);
     cout << "sending back" << endl;
 
     stop_wait((int)success_prob);

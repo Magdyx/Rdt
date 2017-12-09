@@ -1,0 +1,16 @@
+# depslib dependency file v1.0
+1512770577 source:c:\users\new\documents\github\rdt\nw2v12.1.2017\clt2\main.cpp
+	<stdio.h>
+	<stdlib.h>
+	<unistd.h>
+	<errno.h>
+	<string.h>
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<arpa/inet.h>
+	<netdb.h>
+	<vector>
+	<fstream>
+	<iostream>
+

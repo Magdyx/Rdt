@@ -11,11 +11,13 @@
 #include <vector>
 #include <fstream>
 #include <iostream>
+#include <string.h>
 #define SERVERPORT "4950" // the port users will be connecting to
 #define CLIENTPORT "4960"
 #define MAXBUFLEN 100
 #define PACKET_DATA_SIZE 500
 
+using namespace std;
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
     socklen_t addr_len;
@@ -24,8 +26,9 @@
     struct sockaddr_storage their_addr;
     int rv;
     int numbytes;
+    string sendfile;
 
-using namespace std;
+
 struct packet
 {
     /* Header */
@@ -61,7 +64,19 @@ vector<string> parse_in_file(string filename)
     return file_contents;
 }
 
-void write_in_file(string filename, char * char_arr, bool first_open)
+void write_image_file(string filename, char* buf, int length, bool append) {
+    ofstream file;
+    if(!append) {
+        file.open(filename.c_str(), ios::out | ios::binary | ios::app);
+    } else {
+        file.open(filename.c_str(), ios::out | ios::binary);
+    }
+    cout << "write image file length :"<<length<< endl;
+    cout <<  buf<<endl;
+    file.write(buf, length);
+    file.close();
+}
+void write_txt_file(string filename, char * char_arr, bool first_open)
 {
 
     ofstream stream;
@@ -80,6 +95,18 @@ void write_in_file(string filename, char * char_arr, bool first_open)
     if( !stream )
         cout << "Write failed" << endl;
 }
+
+void write_in_file(string filename, char*buf, int length, bool first_open){
+    if(filename.substr(filename.find_last_of(".") + 1) == "txt"){
+		write_txt_file(filename, buf, first_open);
+	}
+	else{
+        cout << "write image call" << endl;
+		write_image_file(filename, buf, length, first_open);
+
+	}
+}
+
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
 {
@@ -131,6 +158,7 @@ void bind_clt_socket()
     }
 }
 void stop_and_wait(){
+    int cnt = 0;
     bool cond = true;
     int numbytes;
     char s[INET6_ADDRSTRLEN];
@@ -150,13 +178,13 @@ void stop_and_wait(){
                          get_in_addr((struct sockaddr *)&their_addr),
                          s, sizeof s));
         printf("listener: packet is %d bytes long\n", numbytes);
-        pkt.data[numbytes] = '\0';
+        //pkt.data[numbytes] = '\0';
         printf("listener: packet contains \"%s\"\n", pkt.data);
 
-
-        write_in_file("file.txt", pkt.data, cond);
+        cout << "pkt.len" << pkt.len << endl;
+        write_in_file(sendfile, pkt.data, (int)pkt.len, cond);
         struct ack_packet ack;
-        ack.ackno = cnt++;
+        ack.ackno = pkt.seqno;
         ack.cksum = 0;
         ack.len = 0;
         //sending ack
@@ -230,7 +258,7 @@ void selective_repeat (int window_size){
         if(rcv_pkt_sr_seqno == rcv_base){
             while(pkts_sr[rcv_base].received){
 
-                write_in_file("file.txt", pkts_sr[rcv_base].pkt.data, cond);
+                write_in_file(sendfile, pkts_sr[rcv_base].pkt.data, pkts_sr[rcv_base].pkt.len, cond);
                 cond = false;
 
                 rcv_base++;
@@ -265,7 +293,7 @@ void go_back_N(int window_size){
                          get_in_addr((struct sockaddr *)&their_addr),
                          s, sizeof s));
         printf("listener: packet is %d bytes long\n", numbytes);
-        pkt.data[numbytes] = '\0';
+        //pkt.data[numbytes] = '\0';
         printf("listener: packet contains \"%s\"\n", pkt.data);
         struct ack_packet ack;
         ack.cksum = 0;
@@ -276,13 +304,13 @@ void go_back_N(int window_size){
           if pkt.seqno not equal to seqno -> return ack equal to last received one
         */
         if(expected_seqno == (int)pkt.seqno){
-            write_in_file("file.txt", pkt.data, cond);
+            write_in_file(sendfile, pkt.data, pkt.len, cond);
             ack.ackno = pkt.seqno;
             cond = false;
                 //sending ack
         }
        else{
-            ack.acknot = expected_seqno-1;
+            ack.ackno = expected_seqno-1;
 
        }
        printf("sending ack\n");
@@ -305,7 +333,7 @@ int main(int argc, char *argv[])
 	string srv_ip = ctnts[0];
 	string srv_port = ctnts[1];
 	string clt_port = ctnts[2];
-	string sendfile = ctnts[3];
+	sendfile = ctnts[3];
 	int window_size = stoi(ctnts[4]);
     //bind_clt_socket();
     memset(&hints, 0, sizeof hints);
