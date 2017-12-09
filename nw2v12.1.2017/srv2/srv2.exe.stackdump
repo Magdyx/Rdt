@@ -1,7 +1,10 @@
-Exception: STATUS_ACCESS_VIOLATION at eip=00000000
-eax=6CFCEC00 ebx=00000000 ecx=0060230C edx=00000000 esi=20041160 edi=20041158
-ebp=00000000 esp=0064CBA0 program=C:\Users\new\Documents\GitHub\Rdt\nw2v12.1.2017\srv2\bin\Debug\srv2.exe, pid 7404, thread main
+Exception: STATUS_STACK_OVERFLOW at eip=00403FDB
+eax=3CF8B2AC ebx=0064CC3C ecx=00452B7C edx=00000000 esi=20041160 edi=20041158
+ebp=0064CB88 esp=0064CB70 program=C:\Users\new\Documents\GitHub\Rdt\nw2v12.1.2017\srv2\bin\Debug\srv2.exe, pid 4496, thread unknown (0x2794)
 cs=0023 ds=002B es=002B fs=0053 gs=002B ss=002B
 Stack trace:
 Frame     Function  Args
+0064CB88  00403FDB (00000005, 00403E68, 0040B140, 0000002E)
+0064CC08  00403AC3 (20041160, 20041158, 0064CD18, 61007A67)
+0064CD18  61007A67 (00000000, 0064CD74, 61006A60, 00000000)
 End of stack trace

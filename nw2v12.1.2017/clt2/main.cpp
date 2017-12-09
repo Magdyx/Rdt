@@ -117,6 +117,15 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+in_port_t get_in_port(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET) {
+        return (((struct sockaddr_in*)sa)->sin_port);
+    }
+
+    return (((struct sockaddr_in6*)sa)->sin6_port);
+}
+
 void bind_clt_socket()
 {
     int sockfd;
@@ -181,6 +190,7 @@ void stop_and_wait(){
         //pkt.data[numbytes] = '\0';
         printf("listener: packet contains \"%s\"\n", pkt.data);
 
+        cout << "port" << endl << ntohs(get_in_port((struct sockaddr *)&their_addr)) << endl;
         cout << "pkt.len" << pkt.len << endl;
         write_in_file(sendfile, pkt.data, (int)pkt.len, cond);
         struct ack_packet ack;
@@ -189,9 +199,13 @@ void stop_and_wait(){
         ack.len = 0;
         //sending ack
         printf("sending ack\n");
+        //if ((numbytes = sendto(sockfd, &ack, sizeof(ack), 0,
+          //                     p->ai_addr, p->ai_addrlen)) == -1)
+        addr_len = sizeof their_addr;
         if ((numbytes = sendto(sockfd, &ack, sizeof(ack), 0,
-                               p->ai_addr, p->ai_addrlen)) == -1)
+                               (struct sockaddr *)&their_addr, addr_len)) == -1)
         {
+
             perror("talker: sendto");
             exit(1);
         }
@@ -204,11 +218,11 @@ void stop_and_wait(){
 }
 
 void selective_repeat (int window_size){
-       int cnt = 0;
+    int cnt = 0;
     bool cond = true;
     int numbytes;
     char s[INET6_ADDRSTRLEN];
-    packet_sr pkts_sr[1000];
+    packet_sr pkts_sr[100];
     int rcv_base = 0;
     while(true)
     {
@@ -247,8 +261,9 @@ void selective_repeat (int window_size){
         //sending ack
         printf("sending ack\n");
         if ((numbytes = sendto(sockfd, &ack, sizeof(ack), 0,
-                               p->ai_addr, p->ai_addrlen)) == -1)
+                                 p->ai_addr, p->ai_addrlen) == -1))
         {
+
             perror("talker: sendto");
             exit(1);
         }
@@ -288,13 +303,10 @@ void go_back_N(int window_size){
             perror("recvfrom");
             exit(1);
         }
-        printf("listener: got packet from %s\n",
-               inet_ntop(their_addr.ss_family,
-                         get_in_addr((struct sockaddr *)&their_addr),
-                         s, sizeof s));
-        printf("listener: packet is %d bytes long\n", numbytes);
-        //pkt.data[numbytes] = '\0';
-        printf("listener: packet contains \"%s\"\n", pkt.data);
+      //  printf("listener: got packet from %s\n",
+        //       inet_ntop(their_addr.ss_family,
+          //               get_in_addr((struct sockaddr *)&their_addr),
+            //             s, sizeof s));
         struct ack_packet ack;
         ack.cksum = 0;
         ack.len = 0;
@@ -308,6 +320,7 @@ void go_back_N(int window_size){
             ack.ackno = pkt.seqno;
             cond = false;
                 //sending ack
+            expected_seqno++;
         }
        else{
             ack.ackno = expected_seqno-1;
@@ -315,17 +328,35 @@ void go_back_N(int window_size){
        }
        printf("sending ack\n");
        if ((numbytes = sendto(sockfd, &ack, sizeof(ack), 0,
-                                       p->ai_addr, p->ai_addrlen)) == -1)
+                               (struct sockaddr *)&their_addr, addr_len)) == -1)
         {
+/** \brief
+ *
+ * \param
+ * \param
+ * \return
+ *
+ */
+
             perror("talker: sendto");
             exit(1);
         }
         printf("ack sent\n");
 
+
     }
     freeaddrinfo(servinfo);
 
 }
+uint16_t generate_checksum(char *data, int len) {
+  uint32_t ret = 0;
+  for (int i = 0; i < len; i++) {
+    ret += data[i];
+    ret = ((ret << 16) >> 16) + (ret >> 16);
+  }
+  return  ((ret << 16) >> 16);
+}
+
 int main(int argc, char *argv[])
 {
 
@@ -366,8 +397,10 @@ int main(int argc, char *argv[])
         perror("talker: sendto");
         exit(1);
     }
-   stop_and_wait();
+   //stop_and_wait();
    // selective_repeat(sockfd, addr_len, their_addr, sendfile, servinfo, p, window_size);
+    //go_back_N(window_size);
+    selective_repeat(window_size);
     close(sockfd);
     return 0;
 }
